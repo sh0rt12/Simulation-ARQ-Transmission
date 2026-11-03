@@ -1,7 +1,9 @@
+# src/coding.py
+
 # Klasa odpowiedzialna za wyliczanie i weryfikację sum kontrolnych CRC (warianty CRC-4,8,16,32)
 class CRCCalculator:
 
-# dzielnik binarny, bity sumy kontrolnej, wartość początkowa, liczba bajtów gotowej sumy po doklejeniu do ramki
+    # dzielnik binarny, bity sumy kontrolnej, wartość początkowa, liczba bajtów gotowej sumy po doklejeniu do ramki
     POLYNOMIALS = {
         'CRC-4': {'poly': 0x03, 'bits': 4, 'init': 0x00, 'bytes': 1},
         'CRC-8': {'poly': 0x07, 'bits': 8, 'init': 0x00, 'bytes': 1},
@@ -9,12 +11,11 @@ class CRCCalculator:
         'CRC-32': {'poly': 0x04C11DB7, 'bits': 32, 'init': 0xFFFFFFFF, 'bytes': 4}
     }
 
-# Konstruktor klasy z domyślnym trybem CRC-16
+    # Konstruktor klasy z domyślnym trybem CRC-16
     def __init__(self, crc_type: str = 'CRC-16'):
         if crc_type not in self.POLYNOMIALS:
             raise ValueError(f"Nieobsługiwany typ CRC: {crc_type}. Wybierz spośród: {list(self.POLYNOMIALS.keys())}")
 
-# Przypisywanie ustawień wybranemu algorytmowi CRC i tworzenie maski bitowej (w celu obcinania nadmiarowych bitów)
         self.crc_type = crc_type
         self.config = self.POLYNOMIALS[crc_type]
         self.poly = self.config['poly']
@@ -22,20 +23,23 @@ class CRCCalculator:
         self.bytes_count = self.config['bytes']
         self.mask = (1 << self.bits) - 1
 
-# Obliczanie wartości sumy kontrolnej
+    # Obliczanie wartości sumy kontrolnej
     def calculate(self, data: bytes) -> int:
         crc = self.config['init']
 
-# Główna pętla z algorytmami dla kodów CRC (mniejszych lub równych 8 bit i większych)
         for byte in data:
-            if self.bits <= 8:
-                crc ^= byte
-                for _ in range(8):
-                    if crc & (1 << (self.bits - 1)):
-                        crc = ((crc << 1) ^ self.poly) & self.mask
-                    else:
-                        crc = (crc << 1) & self.mask
+            if self.bits < 8:
+                # Dla wielomianów krótszych niż bajt (np. CRC-4):
+                # Przetwarzamy starszą i młodszą połówkę bajtu (półbajty)
+                for nibble in [(byte >> 4) & 0x0F, byte & 0x0F]:
+                    crc ^= nibble
+                    for _ in range(4):
+                        if crc & (1 << (self.bits - 1)):
+                            crc = ((crc << 1) ^ self.poly) & self.mask
+                        else:
+                            crc = (crc << 1) & self.mask
             else:
+                # Dla CRC-8, CRC-16, CRC-32:
                 crc ^= (byte << (self.bits - 8))
                 for _ in range(8):
                     if crc & (1 << (self.bits - 1)):
@@ -43,17 +47,15 @@ class CRCCalculator:
                     else:
                         crc = (crc << 1) & self.mask
 
-        return crc
+        return crc & self.mask
 
-
-# Zamiana bajtów na liczbę i doklejanie bajtów sumy kontrolnej, w celu otrzymania gotowego do wysyłki strumienia
+    # Zamiana bajtów na liczbę i doklejanie bajtów sumy kontrolnej, w celu otrzymania gotowego do wysyłki strumienia
     def encode(self, data: bytes) -> bytes:
-
         crc_val = self.calculate(data)
         crc_bytes = crc_val.to_bytes(self.bytes_count, byteorder='big')
         return data + crc_bytes
 
-# Weryfikacja sumy kontrolnej ramki
+    # Weryfikacja sumy kontrolnej ramki
     def verify(self, frame_bytes: bytes) -> bool:
         if len(frame_bytes) < self.bytes_count:
             return False
