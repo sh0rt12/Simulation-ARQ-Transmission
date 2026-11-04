@@ -41,10 +41,6 @@ for frame in frames:
 
 print("\n--- STOP-AND-WAIT ---")
 
-# TODO: Wiadomości zwrotne (ACK/NACK)
-# Odbiornik teraz od razu prosto informuje nadajnik, czy paczka dotarła (zwraca sam status) - zakładamy że odpowiedź dla nadajnika zawsze dociera bezbłędnie.
-# Odbiornik powinien stworzyć prawdziwą ramkę z potwierdzeniem i odesłać ją do nadajnika. Powrotna ramka również musi przejść przez kanał BSC (bez danych, lenght=0, sam nagłówek i crc)
-
 # Inicjalizacja kanału BSC
 channel = Channel(model="BSC", p=0.0001)
 
@@ -66,24 +62,35 @@ for frame in frames:
         # Budujemy strumień bajtów
         raw_stream = frame.build_full_frame(crc)
         
-        # Przepuszczenie przez kanał
+        # Przepuszczenie przez kanał do odbiornika
         noisy_stream = channel.apply_noise(raw_stream)
         
-        # Sprawdzenie ramki przez odbiornik
-        response = receiver.receive_frame(noisy_stream)
+        # Odbiornik generuje ramkę zwrotną
+        response_bytes = receiver.receive_frame(noisy_stream)
         
-        # Reakcja na ACK / NACK
-        if response['status'] == FrameType.ACK:
-            print(f"[Sukces] Ramka {frame.seq_num} odebrana poprawnie (próba {attempts}/{max_retries})")
-            success = True
+        # Przepuszczenie ramki zwrotnej przez kanał do nadajnika
+        noisy_response = channel.apply_noise(response_bytes)
+        
+        # NADAJNIK WERYFIKUJE ODPOWIEDŹ ZWROTNĄ
+        # Sprawdzamy, czy ramka zwrotna przeszła poprawnie przez CRC i ma odpowiednią długość
+        if crc.verify(noisy_response) and len(noisy_response) >= 6:
+            # Odczytujemy typ ramki (3 bajt nagłówka to Typ, czyli indeks 2)
+            response_type = noisy_response[2]
+            
+            if response_type == FrameType.ACK:
+                print(f"[Sukces] Ramka {frame.seq_num} odebrana i potwierdzona ACK (próba {attempts}/{max_retries})")
+                success = True
+            else:
+                print(f"[Błąd] Otrzymano NACK dla ramki {frame.seq_num}. Retransmisja...")
+                total_retransmissions += 1
         else:
-            print(f"[Błąd] Ramka {frame.seq_num} uszkodzona. Retransmisja...")
+            print(f"[Błąd] Ramka zwrotna uszkodzona przez szum. Retransmisja...")
             total_retransmissions += 1
             
     # Zerwanie połączenia - zabezpieczenie przed nieskończoną petlą
     if not success:
-        print(f"\nZerwanie połączenia! Ramka {frame.seq_num} nie dotarła po {max_retries} próbach.")
-        break 
+        print(f"\n[STOP] Zerwanie połączenia! Ramka {frame.seq_num} nie dotarła po {max_retries} próbach.")
+        break
 
 print("\n--- PODSUMOWANIE TRANSMISJI ---")
 print(f"Wysłano ramek: {len(frames)}")
