@@ -1,3 +1,5 @@
+# src/frame.py
+
 import struct # moduł do pakowania danych binarnych
 from typing import List # moduł do typowania odpowiedzi
 from src.coding import CRCCalculator

@@ -1,3 +1,5 @@
+# src/receiver.py
+
 from src.coding import CRCCalculator
 from src.frame import FrameType
 

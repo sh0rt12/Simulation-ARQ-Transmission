@@ -1,7 +1,10 @@
+# main.py
+
 import os
 from src.coding import CRCCalculator
 from src.frame import DataFragmenter, FrameType
 from src.receiver import Receiver
+from src.channel import Channel
 
 filename = "test_10KB.txt"
 
@@ -33,22 +36,55 @@ print(f"Otrzymano danych: {len(text_data)} bajtow. Podzielono na {len(frames)} r
 for frame in frames:
     frame.display_info(crc)
 
-print("\n--- TEST ODBIORNIKA ---")
+
+
+
+print("\n--- STOP-AND-WAIT ---")
+
+# TODO: Wiadomości zwrotne (ACK/NACK)
+# Odbiornik teraz od razu prosto informuje nadajnik, czy paczka dotarła (zwraca sam status) - zakładamy że odpowiedź dla nadajnika zawsze dociera bezbłędnie.
+# Odbiornik powinien stworzyć prawdziwą ramkę z potwierdzeniem i odesłać ją do nadajnika. Powrotna ramka również musi przejść przez kanał BSC (bez danych, lenght=0, sam nagłówek i crc)
+
+# Inicjalizacja kanału BSC
+channel = Channel(model="BSC", p=0.0001)
 
 #Inicjalizacja odbiornika
 receiver = Receiver(crc)
 
-# Bierzemy pierwszą ramkę i budujemy jej pełny ciąg bajtów
-test_frame = frames[0]
-ideal_stream = test_frame.build_full_frame(crc)
+max_retries = 10
+total_retransmissions = 0
 
-# Test 1 - wysyłamy idealny strumień do odbiornika
-response_1 = receiver.receive_frame(ideal_stream)
-print(f"Test 1 (Idealna ramka): {response_1['message']} -> Status: {FrameType.to_string(response_1['status'])}")
+# Pętla przechodząca po kolei przez wszystkie ramki
+for frame in frames:
+    attempts = 0
+    success = False
+    
+    # Wysyłanie ramki dopóki nie będzie ACK lud do max 10 prób
+    while attempts < max_retries and not success:
+        attempts += 1
+        
+        # Budujemy strumień bajtów
+        raw_stream = frame.build_full_frame(crc)
+        
+        # Przepuszczenie przez kanał
+        noisy_stream = channel.apply_noise(raw_stream)
+        
+        # Sprawdzenie ramki przez odbiornik
+        response = receiver.receive_frame(noisy_stream)
+        
+        # Reakcja na ACK / NACK
+        if response['status'] == FrameType.ACK:
+            print(f"[Sukces] Ramka {frame.seq_num} odebrana poprawnie (próba {attempts}/{max_retries})")
+            success = True
+        else:
+            print(f"[Błąd] Ramka {frame.seq_num} uszkodzona. Retransmisja...")
+            total_retransmissions += 1
+            
+    # Zerwanie połączenia - zabezpieczenie przed nieskończoną petlą
+    if not success:
+        print(f"\nZerwanie połączenia! Ramka {frame.seq_num} nie dotarła po {max_retries} próbach.")
+        break 
 
-# Test 2 - celowo psujemy strumień i wysyłamy do odbiornika
-corrupted_stream = bytearray(ideal_stream)
-corrupted_stream[10] ^= 0xFF  # Wymuszamy błąd poprzez odwrócenie bitów w 11. bajcie
-
-response_2 = receiver.receive_frame(corrupted_stream)
-print(f"Test 2 (Zepsuta ramka): {response_2['message']} -> Status: {FrameType.to_string(response_2['status'])}")
+print("\n--- PODSUMOWANIE TRANSMISJI ---")
+print(f"Wysłano ramek: {len(frames)}")
+print(f"Liczba retransmisji: {total_retransmissions}")
