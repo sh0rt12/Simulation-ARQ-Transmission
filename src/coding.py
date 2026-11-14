@@ -1,5 +1,3 @@
-# src/coding.py
-
 # Klasa odpowiedzialna za wyliczanie i weryfikację sum kontrolnych CRC (warianty CRC-4,8,16,32)
 class CRCCalculator:
 

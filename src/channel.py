@@ -1,5 +1,3 @@
-# src/channel.py
-
 import random
 
 class ChannelModel:
